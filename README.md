@@ -48,7 +48,7 @@ Transform any Wikipedia article into an interactive, educational quiz using AI! 
 
 **1. Clone the repository**
 ```bash
-git clone https://github.com/yourusername/ai-wiki-quiz-generator.git
+git clone https://github.com/Srishanth57/QuizGeneratorAssignment.git
 cd ai-wiki-quiz-generator
 ```
 
