@@ -18,8 +18,7 @@ Transform any Wikipedia article into an interactive, educational quiz using AI! 
 
 ## 🎥 Demo
 
-![Demo Screenshot](<img width="2559" height="1372" alt="image" src="https://github.com/user-attachments/assets/d1542616-cb5d-45f8-a77c-3a702115af9b" />
-)
+![Demo Screenshot](ai-quiz-generator/images/Screenshot 2025-11-09 173111.png)
 
 ## 🛠️ Tech Stack
 
