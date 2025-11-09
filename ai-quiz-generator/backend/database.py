@@ -1,36 +1,32 @@
-import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
-# --- 1. Define the Database URL ---
-
-# This is the path to your database file.
-# The "./" means "in the same directory as the script."
-DATABASE_FILE = "quiz_history.db"
-DATABASE_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), DATABASE_FILE)
-
-# The "connection string" for SQLite is simple:
-# "sqlite:///path/to/your/file.db"
-# The '///' is important! It means it's a file path.
-DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
-
-# --- 2. Define the SQLAlchemy Engine ---
+# Database setup
+DATABASE_URL = "sqlite:///./quiz_history.db"  # For SQLite
 
 
-engine = create_engine(
-    DATABASE_URL,
-    echo=True,
-    connect_args={"check_same_thread": False} # Specific to SQLite
-)
-
-
-class Base(DeclarativeBase):
-    pass
-
-
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
+class Quiz(Base):
+    __tablename__ = "quizzes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    url = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    date_generated = Column(DateTime, default=datetime.utcnow)
+    scraped_content = Column(Text, nullable=True)  
+    full_quiz_data = Column(Text, nullable=False)  
 
+# Create tables
+Base.metadata.create_all(bind=engine)
 
-print(f"Database engine created for: {DATABASE_URL}")
-
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

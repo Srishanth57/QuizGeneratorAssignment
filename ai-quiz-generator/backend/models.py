@@ -1,26 +1,18 @@
-from sqlalchemy import  Column, Integer, String, ForeignKey , Text , DateTime 
-from database import Base # <-e- Import your Base
-import datetime
+from pydantic import BaseModel, Field
+from typing import List
 
-# Define a model. 
-class User(Base):
-    __tablename__ = "users"
+class Question(BaseModel):
+    question: str = Field(description="The quiz question text")
+    options: List[str] = Field(description="List of 4 answer options")
+    correct_answer: str = Field(description="The correct answer from the options")
+    explanation: str = Field(description="Brief explanation of why the answer is correct")
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
+class Quiz(BaseModel):
+    title: str = Field(description="Quiz title based on the article topic")
+    questions: List[Question] = Field(description="List of 5-10 quiz questions")
 
-class QuizHistory(Base):
-    __tablename__ = "quiz_history"
+class QuizOutput(BaseModel):
+    quiz: Quiz
+    key_entities: List[str] = Field(description="5-10 key topics/entities from the article")
+    related_topics: List[str] = Field(description="3-5 related topics for further reading")
 
-    id = Column(Integer, primary_key=True, index=True)
-    score = Column(Integer)
-    user_id = Column(Integer, ForeignKey("users.id"))
-
-class Quiz(Base): 
-    __tablename__ = "quiz" 
-    id = Column(Integer, primary_key=True  )
-    url = Column(String)
-    title = Column(String)
-    date_generated = Column(DateTime, default =datetime.datetime.now)
-    scraped_content = Column(Text, nullable=True) 
-    full_quiz_data = Column(Text, nullable=False)

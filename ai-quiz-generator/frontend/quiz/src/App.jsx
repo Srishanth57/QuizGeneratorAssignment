@@ -1,9 +1,12 @@
 import Home from "./components/Home";
+import { Navigate, Route, Routes } from "react-router";
 
 function App() {
   return (
     <>
-      <Home/>
+      <Routes>
+        <Route path="*" element={<Home />} />
+      </Routes>
     </>
   );
 }

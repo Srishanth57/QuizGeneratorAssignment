@@ -1,84 +1,151 @@
-import json
-from database import engine, Base
-from models import User, Quiz, QuizHistory
+
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
+from datetime import datetime
+import json
 
-# --- 1. Ensure Tables Exist ---
-# This is safe to run every time. It will NOT
-# recreate tables that already exist.
-Base.metadata.create_all(bind=engine)
+from database import get_db, Quiz as DBQuiz
+from scraper import scrape_wikipedia
+from llm_quiz_generator import generate_quiz
 
-# --- 2. Create a Session ---
-# We use a 'with' block, which is the standard way.
-# It automatically opens and closes the session.
-try:
-    with Session(engine) as session:
+# Initialize FastAPI
+app = FastAPI(title="AI Wiki Quiz Generator")
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React dev servers
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Request/Response Models
+class GenerateQuizRequest(BaseModel):
+    url: HttpUrl
+
+class QuizHistoryResponse(BaseModel):
+    id: int
+    url: str
+    title: str
+    date_generated: datetime
+
+# API Endpoints
+
+@app.get("/")
+def root():
+    return {"message": "AI Wiki Quiz Generator API", "status": "active"}
+
+@app.post("/generate_quiz")
+async def create_quiz(request: GenerateQuizRequest, db: Session = Depends(get_db)):
+    """
+    Generate a new quiz from a Wikipedia URL.
+    
+    1. Scrapes the Wikipedia article
+    2. Generates quiz using LLM
+    3. Saves to database
+    4. Returns quiz data
+    """
+    try:
+        url_str = str(request.url)
         
-        # --- 3. Create Independent Objects (Users & Quizzes) ---
+        # Validate Wikipedia URL
+        if "wikipedia.org" not in url_str:
+            raise HTTPException(status_code=400, detail="Please provide a valid Wikipedia URL")
         
-        print("Creating new users...")
-        # Create Python instances of your models
-        user1 = User(username="alice")
-        user2 = User(username="bob")
+        # Step 1: Scrape Wikipedia
+        print(f"Scraping Wikipedia article: {url_str}")
+        article_text, article_title = scrape_wikipedia(url_str)
         
-        print("Creating new quiz...")
-        # This is the complex JSON data for your quiz
-        sample_quiz_data = {
-            "title": "Basic Python Quiz",
-            "questions": [
-                {
-                    "q": "What is 2+2?",
-                    "options": ["3", "4", "5"],
-                    "answer": "4"
-                },
-                {
-                    "q": "What is the capital of France?",
-                    "options": ["London", "Berlin", "Paris"],
-                    "answer": "Paris"
-                }
-            ]
+        if not article_text or len(article_text) < 100:
+            raise HTTPException(status_code=400, detail="Could not extract sufficient content from article")
+        
+        # Step 2: Generate quiz using LLM
+        print(f"Generating quiz for: {article_title}")
+        quiz_data = generate_quiz(article_text, article_title)
+        
+        # Step 3: Save to database
+        quiz_json = json.dumps(quiz_data)
+        
+        db_quiz = DBQuiz(
+            url=url_str,
+            title=article_title,
+            scraped_content=article_text[:5000],  # Store first 5000 chars
+            full_quiz_data=quiz_json
+        )
+        
+        db.add(db_quiz)
+        db.commit()
+        db.refresh(db_quiz)
+        
+        print(f"Quiz saved with ID: {db_quiz.id}")
+        
+        # Step 4: Return quiz data
+        return {
+            "id": db_quiz.id,
+            "url": url_str,
+            "title": article_title,
+            "date_generated": db_quiz.date_generated,
+            **quiz_data
         }
         
-        # Create the Quiz object, using json.dumps()
-        quiz1 = Quiz(
-            url="http://example.com/python-quiz",
-            title="Python Basics",
-            # We serialize the dict into a JSON string
-            full_quiz_data=json.dumps(sample_quiz_data) 
-        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error generating quiz: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate quiz: {str(e)}")
 
-        # --- 4. Add to Session (Staging Area) ---
-        # Add all your new objects to the "cart"
-        session.add(user1)
-        session.add(user2)
-        session.add(quiz1)
+@app.get("/history")
+async def get_history(db: Session = Depends(get_db)):
+    """
+    Get list of all generated quizzes.
+    """
+    try:
+        quizzes = db.query(DBQuiz).order_by(DBQuiz.date_generated.desc()).all()
+        
+        return [
+            {
+                "id": quiz.id,
+                "url": quiz.url,
+                "title": quiz.title,
+                "date_generated": quiz.date_generated
+            }
+            for quiz in quizzes
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
 
-        # --- 5. Commit (Save to Database) ---
-        # This is the "checkout". The database transaction happens here.
-        # Until you call commit(), nothing is saved!
-        session.commit()
+@app.get("/quiz/{quiz_id}")
+async def get_quiz(quiz_id: int, db: Session = Depends(get_db)):
+    """
+    Get specific quiz by ID.
+    """
+    try:
+        quiz = db.query(DBQuiz).filter(DBQuiz.id == quiz_id).first()
+        
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Quiz not found")
+        
+        # Deserialize quiz data
+        quiz_data = json.loads(quiz.full_quiz_data)
+        
+        return {
+            "id": quiz.id,
+            "url": quiz.url,
+            "title": quiz.title,
+            "date_generated": quiz.date_generated,
+            **quiz_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch quiz: {str(e)}")
 
-        print("Successfully added users and quiz.")
-        
-        # --- 6. Create Dependent Objects (QuizHistory) ---
-        # Now that we have committed, our objects have IDs!
-        # The 'user1' object was automatically updated with its new ID.
-        print(f"New user 'alice' has ID: {user1.id}")
-        
-        # Now we can create a QuizHistory that *links* to user1
-        history1 = QuizHistory(
-            score=85,
-            user_id=user1.id  # <-- This is the Foreign Key link
-        )
-        
-        # Add the new history object to the session
-        session.add(history1)
-        
-        # Commit this second change
-        session.commit()
-        
-        print(f"Successfully added quiz history for user {user1.username}.")
-        
-except Exception as e:
-    print(f"An error occurred: {e}")
-    session.rollback() # Roll back changes if something went wrong
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
